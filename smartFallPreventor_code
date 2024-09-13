@@ -235,3 +235,27 @@ String _readSerial() {
 
   return input;
 }
+
+
+void callNumber() {
+  sim.print(F("ATD"));
+  sim.print(number);
+  sim.print(F(";\r\n"));
+  _buffer = _readSerial();  // Use the newly defined function here
+  Serial.println(_buffer);  // Print the response from GSM module
+}
+
+void SendMessage()
+{
+  sim.println("AT+CMGF=1");    //Sets the GSM Module in Text Mode
+  delay(200);
+  sim.println("AT+CMGS=\"" + number + "\"\r"); //Mobile phone number to send message
+  delay(200);
+  String SMS = ("FALL DETECTED!\n Heart rate= " + String(heartRate)); // message to send 
+  sim.println(SMS);
+  delay(100);
+  sim.println((char)26); // ASCII code of CTRL+Z
+  delay(200);
+  _buffer = _readSerial();  // Use the newly defined function here
+  Serial.println(_buffer);  // Print the response from GSM module
+}
