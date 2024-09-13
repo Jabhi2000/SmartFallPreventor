@@ -1,0 +1,237 @@
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <DFRobot_MAX30102.h>
+#include <SoftwareSerial.h>
+
+#define relaymod 4
+#define greenled 5
+#define redled 7
+
+SoftwareSerial sim(2,3); //TX AND RX OF MODULE
+int _timeout;
+String _buffer;
+String number = "+918374292020"; //-> change with your number
+
+
+DFRobot_MAX30102 particleSensor;
+
+// MPU6050 object
+Adafruit_MPU6050 mpu;
+
+// Variables to store baseline values and thresholds
+float radius = 5.0;
+float fall_threshold = 10.0;
+float baseline_accel_x, baseline_accel_y, baseline_accel_z;
+float baseline_gyro_x, baseline_gyro_y, baseline_gyro_z;
+float accel_x, accel_y, accel_z;
+
+// Function to initialize the MPU6050 sensor
+bool initializeMPU6050() {
+  if (!mpu.begin()) {
+    return false;
+  }
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+  delay(100);
+
+  // Get initial sensor readings to calculate baseline values
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  // Initialize baseline readings
+  baseline_accel_x = a.acceleration.x;
+  baseline_accel_y = a.acceleration.y;
+  baseline_accel_z = a.acceleration.z;
+  baseline_gyro_x = g.gyro.x;
+  baseline_gyro_y = g.gyro.y;
+  baseline_gyro_z = g.gyro.z;
+
+  Serial.println("Baseline values recorded.");
+  return true;
+}
+
+// Function to update the sensor readings and check for fall detection
+void updateMPU6050() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  // Calculate deviations from baseline
+  accel_x = a.acceleration.x - baseline_accel_x;
+  accel_y = a.acceleration.y - baseline_accel_y;
+  accel_z = a.acceleration.z - baseline_accel_z;
+  float gyro_x = g.gyro.x - baseline_gyro_x;
+  float gyro_y = g.gyro.y - baseline_gyro_y;
+  float gyro_z = g.gyro.z - baseline_gyro_z;
+
+  // Calculate overall deviation
+  float deviation = sqrt(pow(accel_x, 2) + pow(accel_y, 2) + pow(accel_z, 2) +
+                         pow(gyro_x, 2) + pow(gyro_y, 2) + pow(gyro_z, 2));
+
+  // Fall detection logic
+  if (deviation > fall_threshold) {
+    detectFall();
+    detectFallDirection();
+    SendMessage();
+    digitalWrite(greenled,HIGH);
+    digitalWrite(relaymod,HIGH);
+    delay(3000);
+    digitalWrite(relaymod,LOW);
+    digitalWrite(greenled,LOW);
+    callNumber();
+
+  }
+}
+
+// Function to print baseline readings
+void printBaselineReadings() {
+  Serial.print("Baseline Accel X: ");
+  Serial.print(baseline_accel_x);
+  Serial.print(", Baseline Accel Y: ");
+  Serial.print(baseline_accel_y);
+  Serial.print(", Baseline Accel Z: ");
+  Serial.println(baseline_accel_z);
+  
+  Serial.print("Baseline Gyro X: ");
+  Serial.print(baseline_gyro_x);
+  Serial.print(", Baseline Gyro Y: ");
+  Serial.print(baseline_gyro_y);
+  Serial.print(", Baseline Gyro Z: ");
+  Serial.println(baseline_gyro_z);
+}
+
+// Function to detect a fall
+void detectFall() {
+  Serial.println("\nFall detected!");
+  // Additional fall response actions can be added here.
+
+}
+
+// Function to detect the direction of the fall
+void detectFallDirection() {
+  if (abs(accel_x) > abs(accel_y) && abs(accel_x) > abs(accel_z)) {
+    if (accel_x > 0) {
+      Serial.println("Falling to the Right.");
+    } else {
+      Serial.println("Falling to the Left.");
+    }
+  } else if (abs(accel_y) > abs(accel_x) && abs(accel_y) > abs(accel_z)) {
+    if (accel_y > 0) {
+      Serial.println("Falling Forward.");
+    } else {
+      Serial.println("Falling Backward.");
+    }
+  } else if (abs(accel_z) > abs(accel_x) && abs(accel_z) > abs(accel_y)) {
+    if (accel_z > 0) {
+      Serial.println("Falling back.");
+    } else {
+      Serial.println("Falling towards front.");
+    }
+  }
+}
+
+void setup() {
+
+  pinMode(relaymod,OUTPUT);
+  pinMode(greenled,OUTPUT);
+  pinMode(redled,OUTPUT);
+
+  //delay(7000); //delay for 7 seconds to make sure the modules get the signal
+  Serial1.begin(9600);
+  _buffer.reserve(50);
+  Serial1.println("Sistem Started...");
+  sim.begin(9600);
+  delay(1000);
+  Serial1.println("Type s to send an SMS, r to receive an SMS, and c to make a call");
+
+  //Init serial
+  Serial.begin(9600);
+  while (!particleSensor.begin()) {
+    Serial.println("MAX30102 was not found");
+    delay(1000);
+  }
+
+  
+  particleSensor.sensorConfiguration(/*ledBrightness=*/50, /*sampleAverage=*/SAMPLEAVG_4, \
+                        /*ledMode=*/MODE_MULTILED, /*sampleRate=*/SAMPLERATE_100, \
+                        /*pulseWidth=*/PULSEWIDTH_411, /*adcRange=*/ADCRANGE_16384);
+
+
+  Serial.begin(9600);
+
+  // Initialize MPU6050 sensor
+  if (!initializeMPU6050()) {
+    Serial.println("Failed to find MPU6050 chip");
+    while (1) {
+      delay(10);
+    }
+  }
+
+  Serial.println("MPU6050 Found!");
+  Serial.println("Baseline values recorded.");
+
+  // Print baseline values for reference
+  printBaselineReadings();
+}
+
+
+int32_t SPO2; //SPO2
+int8_t SPO2Valid; //Flag to display if SPO2 calculation is valid
+int32_t heartRate; //Heart-rate
+int8_t heartRateValid; //Flag to display if heart-rate calculation is valid 
+
+void loop() {
+
+  Serial.println(F("Wait about four seconds"));
+  particleSensor.heartrateAndOxygenSaturation(/**SPO2=*/&SPO2, /**SPO2Valid=*/&SPO2Valid, /**heartRate=*/&heartRate, /**heartRateValid=*/&heartRateValid);
+  //Print result 
+  Serial.print(F("heartRate="));
+  Serial.print(heartRate, DEC);
+  // Serial.print(F(", heartRateValid="));
+  // Serial.print(heartRateValid, DEC);
+  Serial.print(F("; SPO2="));
+  Serial.print(SPO2, DEC);
+  // Serial.print(F(", SPO2Valid="));
+  // Serial.println(SPO2Valid, DEC)
+  digitalWrite(redled,HIGH);
+  // Update MPU6050 sensor data and check for fall detection
+  updateMPU6050();
+
+  Serial.println("");  // Blank line for readability
+  delay(100);  // Small delay for stability
+
+
+  if (Serial1.available() > 0)
+    switch (Serial.read())
+    {
+      case 's':
+        SendMessage();
+        break;
+      case 'c':
+        callNumber();
+        break;
+    }
+  if (sim.available() > 0)
+    Serial1.write(sim.read());
+
+
+
+}
+
+String _readSerial() {
+  String input = "";
+  long timeout = millis() + 5000;  // 5 seconds timeout for reading
+
+  while (millis() < timeout) {
+    while (sim.available()) {
+      char c = sim.read();
+      input += c;
+      delay(10);  // Small delay to allow all characters to arrive
+    }
+  }
+
+  return input;
+}
